@@ -68,7 +68,7 @@ SAME_FORM = _twins("""
     vpshufd vpshuflw vpshufhw vpextrb vpextrw vpextrd vpextrq vextractps
     vpmovsxbw vpmovsxbd vpmovsxbq vpmovsxwd vpmovsxwq vpmovsxdq
     vpmovzxbw vpmovzxbd vpmovzxbq vpmovzxwd vpmovzxwq vpmovzxdq
-    vpabsb vpabsw vpabsd vphminposuw
+    vpabsb vpabsw vpabsd vphminposuw vmovntdqa vstmxcsr vldmxcsr
 """)
 
 # VEX "d, s1, s2[, imm]" == "movaps d, s1 ; OP d, s2[, imm]".
@@ -89,7 +89,7 @@ NDS_FORM = _twins("""
     vpsllw vpslld vpsllq vpsrlw vpsrld vpsrlq vpsraw vpsrad vpslldq vpsrldq
     vpunpcklbw vpunpckhbw vpunpcklwd vpunpckhwd vpunpckldq vpunpckhdq vpunpcklqdq vpunpckhqdq
     vpacksswb vpackssdw vpackuswb vpackusdw vpalignr vpshufb vpblendw
-    vpinsrb vpinsrw vpinsrd vpinsrq
+    vpinsrb vpinsrw vpinsrd vpinsrq vmovlps vmovhps vmovlpd vmovhpd
 """ + " ".join("vcmp%s%s" % (p, k) for p in _CMP.split() for k in ("ps", "pd", "ss", "sd")))
 
 # Packed ops where "d, s1, d" can be lifted as "OP d, s1".
@@ -97,6 +97,8 @@ COMMUTATIVE = set(_twins("""
     vaddps vmulps vandps vorps vxorps vaddpd vmulpd vandpd vorpd
     vpxor vpand vpor vpaddb vpaddw vpaddd vpaddq vpmulld vpmullw vpmuludq
     vpcmpeqb vpcmpeqw vpcmpeqd vpcmpeqq vpavgb vpavgw
+    vpminsb vpminsw vpminsd vpminub vpminuw vpminud vpmaxsb vpmaxsw vpmaxsd vpmaxub vpmaxuw vpmaxud
+    vpaddsb vpaddsw vpaddusb vpaddusw vpmulhw vpmulhuw vpmuldq vpmaddwd vpsadbw
 """)) | set(_twins(" ".join("vcmp%sps vcmp%spd" % (p, p) for p in "eq neq unord ord".split())))
 
 # "OP d, s, s" whose result is 0 whatever s holds.
@@ -179,16 +181,38 @@ INTRINSICS[NN.NN_vcvtdq2pd] = ("cvtepi32_pd", "Vpd", ("Xi",))
 INTRINSICS[NN.NN_vcvttpd2dq] = ("cvttpd_epi32", "Xi", ("Vpd",))
 INTRINSICS[NN.NN_vmovmskps] = ("movemask_ps", "n", ("Vps",))
 INTRINSICS[NN.NN_vmovmskpd] = ("movemask_pd", "n", ("Vpd",))
-for _name, _base in (("vpsubb", "sub_epi8"), ("vpsubw", "sub_epi16"), ("vpsubd", "sub_epi32"),
-                     ("vpsubq", "sub_epi64"), ("vpandn", "andnot_si128"), ("vpcmpgtb", "cmpgt_epi8"),
-                     ("vpcmpgtw", "cmpgt_epi16"), ("vpcmpgtd", "cmpgt_epi32"), ("vpcmpgtq", "cmpgt_epi64"),
-                     ("vpshufb", "shuffle_epi8"), ("vpunpcklqdq", "unpacklo_epi64"),
-                     ("vpunpckhqdq", "unpackhi_epi64"), ("vpunpckldq", "unpacklo_epi32"),
-                     ("vpunpckhdq", "unpackhi_epi32"), ("vpackssdw", "packs_epi32"),
-                     ("vpackusdw", "packus_epi32"), ("vpsrld", "srl_epi32"), ("vpslld", "sll_epi32"),
-                     ("vpsrad", "sra_epi32"), ("vpsrlq", "srl_epi64"), ("vpsllq", "sll_epi64")):
+# 128-bit integer ops, "vpXXX" -> "_mm_XXX" (shift counts given as an
+# immediate switch to the slli/srli/srai names in _intrinsic)
+INT_INTRINSICS = """
+    vpaddb add_epi8 vpaddw add_epi16 vpaddd add_epi32 vpaddq add_epi64
+    vpsubb sub_epi8 vpsubw sub_epi16 vpsubd sub_epi32 vpsubq sub_epi64
+    vpaddsb adds_epi8 vpaddsw adds_epi16 vpaddusb adds_epu8 vpaddusw adds_epu16
+    vpsubsb subs_epi8 vpsubsw subs_epi16 vpsubusb subs_epu8 vpsubusw subs_epu16
+    vpmullw mullo_epi16 vpmulld mullo_epi32 vpmulhw mulhi_epi16 vpmulhuw mulhi_epu16
+    vpmuludq mul_epu32 vpmuldq mul_epi32 vpmaddwd madd_epi16 vpsadbw sad_epu8
+    vpand and_si128 vpandn andnot_si128 vpor or_si128 vpxor xor_si128
+    vpcmpeqb cmpeq_epi8 vpcmpeqw cmpeq_epi16 vpcmpeqd cmpeq_epi32 vpcmpeqq cmpeq_epi64
+    vpcmpgtb cmpgt_epi8 vpcmpgtw cmpgt_epi16 vpcmpgtd cmpgt_epi32 vpcmpgtq cmpgt_epi64
+    vpminsb min_epi8 vpminsw min_epi16 vpminsd min_epi32 vpminub min_epu8 vpminuw min_epu16
+    vpminud min_epu32 vpmaxsb max_epi8 vpmaxsw max_epi16 vpmaxsd max_epi32 vpmaxub max_epu8
+    vpmaxuw max_epu16 vpmaxud max_epu32 vpavgb avg_epu8 vpavgw avg_epu16
+    vpsignb sign_epi8 vpsignw sign_epi16 vpsignd sign_epi32
+    vphaddw hadd_epi16 vphaddd hadd_epi32 vphsubw hsub_epi16 vphsubd hsub_epi32
+    vpunpcklbw unpacklo_epi8 vpunpckhbw unpackhi_epi8 vpunpcklwd unpacklo_epi16
+    vpunpckhwd unpackhi_epi16 vpunpckldq unpacklo_epi32 vpunpckhdq unpackhi_epi32
+    vpunpcklqdq unpacklo_epi64 vpunpckhqdq unpackhi_epi64
+    vpacksswb packs_epi16 vpackssdw packs_epi32 vpackuswb packus_epi16 vpackusdw packus_epi32
+    vpshufb shuffle_epi8
+    vpsllw sll_epi16 vpslld sll_epi32 vpsllq sll_epi64 vpsrlw srl_epi16 vpsrld srl_epi32
+    vpsrlq srl_epi64 vpsraw sra_epi16 vpsrad sra_epi32
+""".split()
+for _name, _base in zip(INT_INTRINSICS[::2], INT_INTRINSICS[1::2]):
     if hasattr(NN, "NN_" + _name):
         INTRINSICS[getattr(NN, "NN_" + _name)] = (_base, "Vi", ("Vi", "Vi"))
+for _name, _base in (("vpslldq", "slli_si128"), ("vpsrldq", "srli_si128")):
+    INTRINSICS[getattr(NN, "NN_" + _name)] = (_base, "Vi", ("Vi", "I"))
+INTRINSICS[NN.NN_vpblendw] = ("blend_epi16", "Vi", ("Vi", "Vi", "I"))
+INTRINSICS[NN.NN_vdppd] = ("dp_pd", "Vpd", ("Vpd", "Vpd", "I"))
 INTRINSICS[NN.NN_vpalignr] = ("alignr_epi8", "Vi", ("Vi", "Vi", "I"))
 INTRINSICS[NN.NN_vpermilps] = ("permute_ps", "Vps", ("Vps", "I"))
 INTRINSICS[NN.NN_vpermilpd] = ("permute_pd", "Vpd", ("Vpd", "I"))
@@ -202,13 +226,14 @@ XMM_FIRST = ida_idp.str2reg("xmm0")
 YMM_FIRST = ida_idp.str2reg("ymm0")
 YMM_TO_XMM = YMM_FIRST - XMM_FIRST
 CALLS = _ids("call callfi callni")
+ZERO_UPPER = _ids("vzeroupper vzeroall")
 VEC_MOVES = _ids("vmovaps vmovups vmovapd vmovupd vmovdqa vmovdqu")
 VEC_TYPES = {("ps", 16): "__m128", ("pd", 16): "__m128d", ("i", 16): "__m128i",
              ("ps", 32): "__m256", ("pd", 32): "__m256d", ("i", 32): "__m256i"}
 
 HANDLED = set(SAME_FORM) | set(NDS_FORM) | set(SCALAR_MOVES) | set(INTRINSICS) | VEC_MOVES | \
     LANE_SHUFFLE | SHUFPS_SAME | HIGH_HALF | PERMILPD | set(ROUND_SCALAR) | _ids("vinsertps") | \
-    _ids("movdqa movdqu")
+    _ids("movdqa movdqu vzeroupper vzeroall vmaskmovdqu")
 
 
 def _same_reg(a: ida_ua.op_t, b: ida_ua.op_t) -> bool:
@@ -317,7 +342,7 @@ class YmmFlow:
                         reads.append((n, wide))
                     if ida_idp.has_cf_chg(feature, i):
                         writes.append((n, wide))
-                yield insn.ea, insn.itype in CALLS, reads, writes
+                yield insn.ea, insn.itype in CALLS or insn.itype in ZERO_UPPER, reads, writes
             ea = ida_bytes.next_head(ea, block.end_ea)
 
     def _transfer(self, insns, state, record):
@@ -406,15 +431,15 @@ class Emitter:
         else:
             self.mov(value, self.reg(hr.reg2mreg(op.reg), value.size))
 
-    def call(self, name: str, result: ida_typeinf.tinfo_t, args) -> hr.mop_t:
-        """Nested call to a pure helper, usable as a source operand."""
+    def call(self, name: str, result: ida_typeinf.tinfo_t, args, pure: bool = True) -> hr.mop_t:
+        """Nested call to a helper, usable as a source operand."""
         info = hr.mcallinfo_t()
         info.callee = ida_idaapi.BADADDR
         info.solid_args = len(args)
         info.cc = ida_typeinf.CM_CC_FASTCALL
         info.return_type = result
         info.role = hr.ROLE_UNK
-        info.flags = hr.FCI_FINAL | hr.FCI_PROP | hr.FCI_SPLOK | hr.FCI_PURE
+        info.flags = hr.FCI_FINAL | hr.FCI_PROP | (hr.FCI_SPLOK | hr.FCI_PURE if pure else 0)
         for mop, tif in args:
             arg = hr.mcallarg_t()
             arg.copy_mop(mop)
@@ -423,11 +448,12 @@ class Emitter:
         insn = hr.minsn_t(self.insn.ea)
         insn.opcode = hr.m_call
         insn.l.make_helper(name)
+        size = 0 if result.is_void() else result.get_size()
         insn.d._make_callinfo(info)
-        insn.d.size = result.get_size()
+        insn.d.size = size
         mop = hr.mop_t()
         mop.make_insn(insn)
-        mop.size = result.get_size()
+        mop.size = size
         return mop
 
 
@@ -489,6 +515,10 @@ class AvxLifter(hr.microcode_filter_t):
         insn = cdg.insn
         ops = [_copy(insn.ops[i]) for i in range(ida_ida.UA_MAXOP) if insn.ops[i].type != ida_ua.o_void]
         itype = insn.itype
+        if itype in (NN.NN_vzeroupper, NN.NN_vzeroall):
+            return hr.MERR_OK            # upper halves are not modelled (see YmmFlow)
+        if itype == NN.NN_vmaskmovdqu and len(ops) == 2:
+            return self._maskmov(cdg)
         ymm = any(_is_ymm(op) for op in ops)
 
         if not ymm:
@@ -555,8 +585,8 @@ class AvxLifter(hr.microcode_filter_t):
         return None
 
     def _sse_twin(self, cdg, itype, ops) -> int:
-        if itype in SAME_FORM:
-            return self._gen_as(cdg, SAME_FORM[itype], ops)
+        if itype in SAME_FORM and (len(ops) == 2 or itype not in NDS_FORM):
+            return self._gen_as(cdg, SAME_FORM[itype], ops)     # vmovlps m64, x / x, m64
         if itype in SCALAR_MOVES:
             if len(ops) == 2:                       # load / store form
                 return self._gen_as(cdg, SCALAR_MOVES[itype], ops)
@@ -676,6 +706,19 @@ class AvxLifter(hr.microcode_filter_t):
             cdg.mba.free_kreg(kreg, 16)
         return hr.MERR_OK
 
+    def _maskmov(self, cdg) -> int:
+        """vmaskmovdqu x, mask: byte-masked store to [rdi] -> _mm_maskmoveu_si128()."""
+        em = Emitter(cdg, self)
+        m128i = self.tif("Xi", 16)
+        ptr = ida_typeinf.tinfo_t()
+        ptr.create_ptr(ida_typeinf.tinfo_t(ida_typeinf.BTF_CHAR))
+        rdi = em.reg(hr.reg2mreg(ida_idp.str2reg("rdi")), 8)
+        void = ida_typeinf.tinfo_t(ida_typeinf.BT_VOID)
+        call = em.call("_mm_maskmoveu_si128", void,
+                       [(em.read(0, 16), m128i), (em.read(1, 16), m128i), (rdi, ptr)], pure=False)
+        cdg.emit(hr.m_call, call.d.l, hr.mop_t(), call.d.d)
+        return hr.MERR_OK
+
     def _round(self, cdg, itype, ops) -> int:
         size = ROUND_SCALAR[itype]
         vex = itype in (NN.NN_vroundss, NN.NN_vroundsd)
@@ -699,6 +742,8 @@ class AvxLifter(hr.microcode_filter_t):
         if spec is None:
             return hr.MERR_INSN
         base, result, args = spec
+        if base[:4] in ("sll_", "srl_", "sra_") and len(ops) == 3 and ops[2].type == ida_ua.o_imm:
+            base, args = base[:3] + "i_" + base[4:], ("Vi", "I")      # vpslld x, y, 4
         # vextractf128 / vcvtpd2ps write 128 bits from a 256-bit source
         prefix = "_mm256_" if width == 32 else "_mm_"
         if width == 16 and base in ("permute2f128_ps", "insertf128_ps", "extractf128_ps", "broadcast_ps"):

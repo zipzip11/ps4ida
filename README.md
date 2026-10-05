@@ -113,8 +113,8 @@ blocks; the plugin lifts them in a microcode filter:
   pass decides where the halves must be re-joined, including VEX upper-lane
   zeroing (`_mm256_zextps128_ps256`).
 
-On 850 SIMD-heavy Bloodborne functions: 27,225 AVX `__asm` lines -> 0, no
-decompilation failures, ~25% slower decompilation. Toggle per database with
+On Bloodborne, all 26,479 functions containing AVX decompile with no `__asm`
+left and no decompilation failures; decompilation is ~25% slower. Toggle per database with
 *Edit -> Plugins -> ps4ida AVX lifter*; re-decompile (F5) to refresh cached
 pseudocode.
 
