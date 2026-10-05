@@ -124,3 +124,7 @@ pseudocode.
 * PS5 (prospero) modules use different dynamic tags and are not claimed.
 * No SCE SDK prototypes are bundled; only libc/libstdc++ prototypes from IDA's
   own type libraries are applied.
+
+## License
+
+GPL-3.0, see [LICENSE](LICENSE).
