@@ -1044,10 +1044,11 @@ class PostAnalysis(ida_idp.IDB_Hooks):
 
     live: set = set()
 
-    def __init__(self, enum_tid: int, candidates: list[tuple[int, int]]):
+    def __init__(self, fdes: list[tuple[int, int]]):
         super().__init__()
-        self.enum_tid = enum_tid
-        self.candidates = candidates
+        self.fdes = fdes                    # (ea, size) of every unwind-described function
+        self.enum_tid = BADADDR
+        self.candidates: list[tuple[int, int]] = []
         PostAnalysis.live.add(self)
 
     def closebase(self):
@@ -1058,10 +1059,26 @@ class PostAnalysis(ida_idp.IDB_Hooks):
     def auto_empty_finally(self):
         self.unhook()
         PostAnalysis.live.discard(self)
+        # never break analysis because of a cleanup pass
         try:
-            self.apply_error_codes()
-        except Exception as exc:     # never break analysis because of a cosmetic pass
-            log("error-code pass failed: %s" % exc)
+            self.create_missed_functions()
+        except Exception as exc:
+            log("FDE function pass failed: %s" % exc)
+        if self.candidates:
+            try:
+                self.apply_error_codes()
+            except Exception as exc:
+                log("error-code pass failed: %s" % exc)
+
+    def create_missed_functions(self):
+        """FDE starts IDA could not turn into functions on its own (typically
+        code falling into an inline jump table) are created with FDE bounds."""
+        created = 0
+        for ea, size in self.fdes:
+            if size and ida_funcs.get_func(ea) is None and ida_funcs.add_func(ea, ea + size):
+                created += 1
+        if created:
+            log("created %d functions from .eh_frame bounds" % created)
 
     def apply_error_codes(self):
         t0 = time.perf_counter()
@@ -1159,6 +1176,7 @@ class Loader:
     # -- driver ------------------------------------------------------------
 
     def run(self):
+        self.post = PostAnalysis([])
         ida_kernwin.show_wait_box("HIDECANCEL\nps4ida: starting")
         try:
             self.step("processor", self.setup_processor)
@@ -1181,6 +1199,10 @@ class Loader:
                 self.step("error codes", self.schedule_error_codes)
             self.step("summary", self.write_summary)
             self.save_state()
+            if self.post.fdes or self.post.candidates:
+                self.post.hook()
+            else:
+                PostAnalysis.live.discard(self.post)
         finally:
             ida_kernwin.hide_wait_box()
         log("timings: " + ", ".join("%s %.2fs" % kv for kv in self.timings.items()))
@@ -1629,10 +1651,11 @@ class Loader:
         if self.o.eh_frame:
             make = ida_auto.auto_make_proc
             in_text = self.in_text
-            for start, _ in self.fdes:
+            for start, size in self.fdes:
                 ea = self.va(start)
                 if in_text(ea):
                     make(ea)
+                    self.post.fdes.append((ea, size))
             self.stats["fdes"] = len(self.fdes)
         if not self.fdes:
             # No unwind info: relocated pointers into code are the next best hint.
@@ -1733,8 +1756,8 @@ class Loader:
                     if self.in_text(ea):
                         candidates.append((ea, value))
                 pos = buf.find(b"\x80", pos + 1)
-        if candidates:
-            PostAnalysis(tid, candidates).hook()
+        self.post.enum_tid = tid
+        self.post.candidates = candidates
         self.stats["errno candidates"] = len(candidates)
 
     def write_summary(self):

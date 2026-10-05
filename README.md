@@ -1,8 +1,12 @@
 # ps4ida — IDA Pro loader for PlayStation 4 modules
 
-A clean-room rewrite of the `ps4_module_loader` (SocraticBliss et al., see
-`refs/ps4_module_loader`) for **IDA Pro 9.4+**, written against the modern
+IDA Pro 9.4+ loader for PlayStation 4 modules, written against the modern
 `ida_*` IDAPython API (no `idc`, no `ctypes`).
+
+## Credits
+
+Based on [ps4_module_loader](https://github.com/SocraticBliss/ps4_module_loader)
+by SocraticBliss. Thanks to everyone credited in its README.
 
 ## Install
 
@@ -51,6 +55,8 @@ form (image base, shader handling, optional passes); otherwise defaults are used
   the module's own `size` field) and the SDK version is shown.
 * **Functions are seeded from `.eh_frame_hdr`** (exact starts of every
   compiled function), which replaces the old byte-pattern prologue hunting.
+  After auto-analysis, any FDE IDA could not turn into a function is created
+  with its unwind bounds.
 * **GCN shaders**: embedded shader binaries are found from their header
   (`s_mov_b32 vcc_hi, imm` → `OrbShdr` footer) and become named, opaque byte
   arrays (`gcn_shader_<hash>`) with a typed `ShaderBinaryInfo`, so auto-analysis
@@ -69,7 +75,7 @@ form (image base, shader handling, optional passes); otherwise defaults are used
 * A summary (module, SDK, fingerprint, needed modules, libraries, linked library
   versions) is written as the database's header comment.
 
-## Differences from the old script
+## Differences from ps4_module_loader
 
 | old | new |
 |---|---|
@@ -89,19 +95,28 @@ form (image base, shader handling, optional passes); otherwise defaults are used
 
 ## AVX lifter plugin (`ps4ida_avx.py`)
 
-Optional, independent of the loader: copy to `plugins/`. The x64 decompiler
-leaves VEX-encoded instructions (`vmovaps`, `vxorps`, `vmulps`, ...) as `__asm`
-blocks; the plugin installs a microcode filter that rewrites each 128-bit VEX
-instruction into its SSE twin (`vaddps d,s1,s2` -> `movaps d,s1; addps d,s2`)
-and lets Hex-Rays' own SSE lifter do the rest, so you get `__m128` variables and
-`_mm_*` intrinsics. Scalar ops whose destination is also the second source are
-emitted as float microcode directly.
+Optional, independent of the loader (works on any x64 database): copy to
+`plugins/`. The x64 decompiler leaves VEX-encoded instructions as `__asm`
+blocks; the plugin lifts them in a microcode filter:
 
-On 400 SIMD-heavy Bloodborne functions: 7112 AVX `__asm` lines -> 216, no
-decompilation failures, ~15% slower decompilation. Still `__asm`: 256-bit `ymm`
-code, 4-operand blends, non-commutative packed ops with `d == s2`. VEX upper-lane
-zeroing (bits 255:128) is not modelled. Toggle per database with
-*Edit -> Plugins -> ps4ida AVX lifter*; re-decompile (F5) to refresh cached pseudocode.
+* 128-bit VEX instructions are rewritten into their SSE twin and handed to the
+  decompiler's own SSE lifter (`vaddps d,s1,s2` -> `movaps d,s1; addps d,s2`).
+* Lane extracts (`vpshufd x,y,k`, `vmovhlps`, `vinsertps`, ...) become lane
+  moves, so code reads `v.m128_f32[3]` instead of shuffle intrinsics.
+* `roundss/roundsd` -> `floorf/ceilf/truncf/rintf`; scalar `sqrt/min/max` with
+  awkward operand orders -> `sqrtf/fminf/fmaxf`.
+* `vpshufd`/`vmovdqa` feeding float code are typed as float (`_mm_shuffle_ps`,
+  `_mm_load_ps`) instead of `__m128i` with casts.
+* 256-bit `ymm` code and remaining forms become `_mm256_*`/`_mm_*` intrinsic
+  calls (`_mm256_add_ps`, `_mm256_set_m128`, `_mm256_extractf128_ps`, ...).
+  The decompiler keeps `xmmN`/`ymmN` apart; a per-function reaching-definitions
+  pass decides where the halves must be re-joined, including VEX upper-lane
+  zeroing (`_mm256_zextps128_ps256`).
+
+On 850 SIMD-heavy Bloodborne functions: 27,225 AVX `__asm` lines -> 0, no
+decompilation failures, ~25% slower decompilation. Toggle per database with
+*Edit -> Plugins -> ps4ida AVX lifter*; re-decompile (F5) to refresh cached
+pseudocode.
 
 ## Limitations / not handled
 
