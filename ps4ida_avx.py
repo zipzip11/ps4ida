@@ -1,5 +1,5 @@
 """
-avx_lifter.py -- Hex-Rays microcode filter that lifts 128-bit AVX (VEX) code.
+ps4ida_avx.py -- Hex-Rays microcode filter that lifts 128-bit AVX (VEX) code.
 
 The x64 decompiler understands SSE but leaves VEX-encoded instructions
 (vmovaps, vxorps, vmulps, ...) as __asm blocks. Most VEX-128 instructions are
@@ -21,7 +21,7 @@ copy the upper lanes from s1; neither is modelled when it can't be expressed
 through the SSE twin. Both are invisible in practice for compiler-generated
 scalar/128-bit code.
 
-Install: copy to <IDAUSR>/plugins. Edit > Plugins > "AVX lifter" toggles it
+Install: copy to <IDAUSR>/plugins. Edit > Plugins > "ps4ida AVX lifter" toggles it
 for the current database.
 """
 
@@ -194,7 +194,7 @@ class AvxLifterModule(ida_idaapi.plugmod_t):
     def run(self, arg):
         self.enabled = not self.enabled
         ida_hexrays.install_microcode_filter(self.filter, self.enabled)
-        ida_kernwin.msg("AVX lifter %s (re-decompile to see the effect)\n"
+        ida_kernwin.msg("ps4ida AVX lifter %s (re-decompile to see the effect)\n"
                         % ("enabled" if self.enabled else "disabled"))
         return True
 
@@ -207,7 +207,7 @@ class AvxLifterPlugin(ida_idaapi.plugin_t):
     flags = ida_idaapi.PLUGIN_MULTI
     comment = "Lift 128-bit AVX instructions in the Hex-Rays decompiler"
     help = "Toggles the AVX microcode lifter for this database"
-    wanted_name = "AVX lifter"
+    wanted_name = "ps4ida AVX lifter"
     wanted_hotkey = ""
 
     def init(self):

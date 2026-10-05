@@ -1,5 +1,5 @@
 """
-ps4_module.py -- IDA Pro 9.4+ loader for PlayStation 4 user-mode modules.
+ps4ida.py -- IDA Pro 9.4+ loader for PlayStation 4 user-mode modules.
 
 Loads eboot.bin / *.prx / *.sprx / *.elf (decrypted ELF, or fake-signed SELF
 with plaintext segments) for x86-64 analysis:
@@ -973,7 +973,7 @@ class Options:
                 super().__init__(r"""STARTITEM 0
 BUTTON YES* OK
 BUTTON CANCEL Cancel
-PS4 module loader
+ps4ida
 
 <#Address the lowest segment is loaded at#Image base (%s):{base}>
 
@@ -1004,11 +1004,11 @@ PS4 module loader
 # IDA side
 # ---------------------------------------------------------------------------
 
-STATE_NODE = "$ ps4_module"
+STATE_NODE = "$ ps4ida"
 
 
 def log(text: str):
-    ida_kernwin.msg("[ps4] %s\n" % text)
+    ida_kernwin.msg("[ps4ida] %s\n" % text)
 
 
 @dataclass
@@ -1151,7 +1151,7 @@ class Loader:
         return ", ".join(parts)
 
     def step(self, label: str, fn):
-        ida_kernwin.replace_wait_box("PS4 loader: %s" % label)
+        ida_kernwin.replace_wait_box("ps4ida: %s" % label)
         t0 = time.perf_counter()
         fn()
         self.timings[label] = time.perf_counter() - t0
@@ -1159,7 +1159,7 @@ class Loader:
     # -- driver ------------------------------------------------------------
 
     def run(self):
-        ida_kernwin.show_wait_box("HIDECANCEL\nPS4 loader: starting")
+        ida_kernwin.show_wait_box("HIDECANCEL\nps4ida: starting")
         try:
             self.step("processor", self.setup_processor)
             self.step("layout", self.compute_layout)
@@ -1851,7 +1851,7 @@ def load_file(li, neflags, fmt):
     try:
         mod = PS4Module(data)
     except FormatError as exc:
-        ida_kernwin.warning("PS4 loader: %s" % exc)
+        ida_kernwin.warning("ps4ida: %s" % exc)
         return 0
 
     if neflags & ida_loader.NEF_RELOAD:
@@ -1865,6 +1865,6 @@ def load_file(li, neflags, fmt):
     try:
         Loader(li, mod, opts).run()
     except FormatError as exc:
-        ida_kernwin.warning("PS4 loader: %s" % exc)
+        ida_kernwin.warning("ps4ida: %s" % exc)
         return 0
     return 1

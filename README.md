@@ -1,4 +1,4 @@
-# ps4_module — IDA Pro loader for PlayStation 4 modules
+# ps4ida — IDA Pro loader for PlayStation 4 modules
 
 A clean-room rewrite of the `ps4_module_loader` (SocraticBliss et al., see
 `refs/ps4_module_loader`) for **IDA Pro 9.4+**, written against the modern
@@ -10,12 +10,13 @@ Copy into your user directory (`~/.idapro` on Linux/macOS, `%APPDATA%\Hex-Rays\I
 
 | file | destination |
 |---|---|
-| `ps4_module.py` | `loaders/` |
+| `ps4ida.py` | `loaders/` |
+| `ps4ida_avx.py` (optional, AVX lifter) | `plugins/` |
 | `aerolib.csv` (NID → name database) | `loaders/` (next to the loader) |
 | `ps4_errno_700.til` (optional, SCE error-code enum) | `til/` |
 
 Open `eboot.bin` / `*.prx` / `*.sprx` / `*.elf` and choose
-**PlayStation 4 … (ps4_module.py)**. Tick **Manual load** to get the options
+**PlayStation 4 … (ps4ida.py)**. Tick **Manual load** to get the options
 form (image base, shader handling, optional passes); otherwise defaults are used.
 
 ## What it does
@@ -86,7 +87,7 @@ form (image base, shader handling, optional passes); otherwise defaults are used
 | yes/no/cancel base-address prompt on every load | options form only on *Manual load* |
 | syscall table had `no` stripped from names (`mkd`, `nasleep`, `kmq_tify`) | fixed |
 
-## AVX lifter plugin (`avx_lifter.py`)
+## AVX lifter plugin (`ps4ida_avx.py`)
 
 Optional, independent of the loader: copy to `plugins/`. The x64 decompiler
 leaves VEX-encoded instructions (`vmovaps`, `vxorps`, `vmulps`, ...) as `__asm`
@@ -100,7 +101,7 @@ On 400 SIMD-heavy Bloodborne functions: 7112 AVX `__asm` lines -> 216, no
 decompilation failures, ~15% slower decompilation. Still `__asm`: 256-bit `ymm`
 code, 4-operand blends, non-commutative packed ops with `d == s2`. VEX upper-lane
 zeroing (bits 255:128) is not modelled. Toggle per database with
-*Edit -> Plugins -> AVX lifter*; re-decompile (F5) to refresh cached pseudocode.
+*Edit -> Plugins -> ps4ida AVX lifter*; re-decompile (F5) to refresh cached pseudocode.
 
 ## Limitations / not handled
 
